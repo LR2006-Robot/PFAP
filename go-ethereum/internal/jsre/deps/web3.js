@@ -5442,7 +5442,7 @@ var methods = function () {
     var getPayerNextState = new Method({
         name: 'getPayerNextState',
         call: 'eth_getPayerNextState',
-        params: 3,
+        params: 2,
     });
 
     var revertTransferState = new Method({

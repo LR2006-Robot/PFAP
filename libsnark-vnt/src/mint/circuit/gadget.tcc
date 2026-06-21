@@ -2,7 +2,7 @@
 #include "note.tcc"
 #include "add_cmp.tcc"
 #include "commitment.tcc"
-#include "merkle.tcc"
+#include "../../poseidon/cmt_existence_gadget.tcc"
 
 /***********************************************************
  * Modified mint circuit
@@ -25,8 +25,7 @@ public:
     std::shared_ptr<multipacking_gadget<FieldT>> unpacker;
 
     std::shared_ptr<digest_variable<FieldT>> zk_merkle_root;
-    pb_variable<FieldT> value_enforce;
-    std::shared_ptr<merkle_tree_gadget<FieldT>> witness_input;
+    std::shared_ptr<poseidon::cmt_existence_gadget<FieldT>> witness_input;
 
     pb_variable_array<FieldT> value;
     pb_variable_array<FieldT> value_old;
@@ -73,10 +72,7 @@ alloc_uint256(zk_unpacked_inputs, sn_old);
             ));
         }
 
-        value_enforce.allocate(pb);
-
         ZERO.allocate(this->pb, FMT(this->annotation_prefix, "zero"));
-
         value.allocate(pb, 64);
         value_old.allocate(pb, 64);
         sk.reset(new digest_variable<FieldT>(pb, 256, "private key"));
@@ -123,11 +119,11 @@ alloc_uint256(zk_unpacked_inputs, sn_old);
             cmtA
         ));
 
-        witness_input.reset(new merkle_tree_gadget<FieldT>(
+        witness_input.reset(new poseidon::cmt_existence_gadget<FieldT>(
             pb,
-            *cmtA_old,
-            *zk_merkle_root,
-            value_enforce
+            cmtA_old->bits,
+            zk_merkle_root->bits,
+            "mint_cmt_existence"
         ));
     }
 
@@ -150,7 +146,6 @@ alloc_uint256(zk_unpacked_inputs, sn_old);
         commit_to_inputs_cmt->generate_r1cs_constraints();
 
         zk_merkle_root->generate_r1cs_constraints();
-        generate_boolean_r1cs_constraint<FieldT>(this->pb, value_enforce, "");
         witness_input->generate_r1cs_constraints();
     }
 
@@ -162,11 +157,10 @@ alloc_uint256(zk_unpacked_inputs, sn_old);
         uint64_t v_s,
         uint256 sk_data,
         const uint256& rt,
-        const MerklePath& path
+        const std::vector<bool>& smt_path_bits,
+        const std::vector<uint256>& smt_siblings
     ) {
         ncab->generate_r1cs_witness(note_old, note, v_s, sk_data);
-
-        this->pb.val(value_enforce) = FieldT::one();
 
         this->pb.val(ZERO) = FieldT::zero();
 
@@ -196,12 +190,18 @@ alloc_uint256(zk_unpacked_inputs, sn_old);
             uint256_to_bool_vector(cmtA_data)
         );
 
-        witness_input->generate_r1cs_witness(path);
-
         zk_merkle_root->bits.fill_with_bits(
             this->pb,
             uint256_to_bool_vector(rt)
         );
+
+        // Poseidon SMT existence proof: cmtA_old->bits and zk_merkle_root->bits
+        // are filled above; convert siblings to field elements and run.
+        std::vector<FieldT> sib_fields(smt_siblings.size());
+        for (size_t i = 0; i < smt_siblings.size(); i++) {
+            sib_fields[i] = poseidon::field_from_uint256(smt_siblings[i]);
+        }
+        witness_input->generate_r1cs_witness(smt_path_bits, sib_fields);
 
         unpacker->generate_r1cs_witness_from_bits();
     }

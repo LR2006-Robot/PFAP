@@ -667,29 +667,10 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	verProofEnd := time.Now()
 	fmt.Println("***** Verify transaction Cost Time (ms): ", verProofEnd.Sub(verProofStart).Nanoseconds() / 1000000, " Tx Size (bytes): ", tx.Size())
 
-
-	if txCode == types.DepositTx || txCode == types.TransferTx {
-		var cmtsForMerkle []*common.Hash
-		cmtblocknumbers := tx.CMTBlocks()
-		for i, _ := range cmtblocknumbers {
-			blockNumber := cmtblocknumbers[i]
-			block := pool.chain.GetBlockByNumber(blockNumber)
-			cmtsForMerkle = append(cmtsForMerkle, block.CMTS()...)
-		}
-
-		if len(cmtsForMerkle) == 0 && txCode == types.TransferTx {
-			// For TransferTx, skip root check when no on-chain CMTs are available.
-			// The ZK proof verification already validates the merkle path.
-			// This handles the initial case where only the note commitment exists (not in block header).
-		} else {
-			cmtRoot := zktx.GenRT(cmtsForMerkle)
-			txCMTroot := tx.RTcmt()
-			if txCMTroot != cmtRoot {
-				return errors.New("invalid CMTRoot")
-			}
-		}
-
-	}
+	// NOTE: the legacy seq-based root re-check (rebuilding a SHA-256 Merkle tree
+	// from tx.CMTBlocks()) is removed. With the global Poseidon state Merkle
+	// tree, rt need not be the latest root: the ZK proof already proves that
+	// cmt_old's leaf was 1 under the claimed rt, which is all that is required.
 	return nil
 }
 

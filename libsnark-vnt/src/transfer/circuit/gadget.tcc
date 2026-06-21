@@ -1,7 +1,7 @@
 #include "utils.tcc"
 #include "comparison.tcc"
 #include "commitment.tcc"
-#include "merkle.tcc"
+#include "../../poseidon/cmt_existence_gadget.tcc"
 
 /***********************************************************
  * Transfer circuit
@@ -26,8 +26,7 @@ public:
     std::shared_ptr<multipacking_gadget<FieldT>> unpacker;
 
     std::shared_ptr<digest_variable<FieldT>> zk_merkle_root;
-    pb_variable<FieldT> value_enforce;
-    std::shared_ptr<merkle_tree_gadget<FieldT>> witness_input;
+    std::shared_ptr<poseidon::cmt_existence_gadget<FieldT>> witness_input;
 
     pb_variable_array<FieldT> value_s;
     pb_variable_array<FieldT> value_old;
@@ -91,7 +90,6 @@ public:
             ));
         }
 
-        value_enforce.allocate(pb);
         ZERO.allocate(this->pb, FMT(this->annotation_prefix, "zero"));
 
         // Private inputs
@@ -142,8 +140,8 @@ public:
             pb, ZERO, value, sn->bits, r_new->bits, cmtA
         ));
 
-        witness_input.reset(new merkle_tree_gadget<FieldT>(
-            pb, *cmtA_old, *zk_merkle_root, value_enforce
+        witness_input.reset(new poseidon::cmt_existence_gadget<FieldT>(
+            pb, cmtA_old->bits, zk_merkle_root->bits, "transfer_cmt_existence"
         ));
     }
 
@@ -186,7 +184,6 @@ public:
         commit_to_inputs_cmt->generate_r1cs_constraints();
 
         zk_merkle_root->generate_r1cs_constraints();
-        generate_boolean_r1cs_constraint<FieldT>(this->pb, value_enforce, "");
         witness_input->generate_r1cs_constraints();
 
         this->pb.add_r1cs_constraint(r1cs_constraint<FieldT>(
@@ -223,12 +220,11 @@ public:
         uint256 cmtA_old_data,
         uint256 cmtA_data,
         const uint256& rt,
-        const MerklePath& path,
+        const std::vector<bool>& smt_path_bits,
+        const std::vector<uint256>& smt_siblings,
         uint8_t type_val
     ) {
         this->pb.val(ZERO) = FieldT::zero();
-
-        this->pb.val(value_enforce) = FieldT::one();
 
         value_s.fill_with_bits(this->pb, uint64_to_bool_vector(v_s));
         this->pb.lc_val(value_s_packed) = value_s.get_field_element_from_bits_by_order(this->pb);
@@ -271,9 +267,13 @@ public:
         cmtA_old->bits.fill_with_bits(this->pb, uint256_to_bool_vector(cmtA_old_data));
         cmtA->bits.fill_with_bits(this->pb, uint256_to_bool_vector(cmtA_data));
 
-        witness_input->generate_r1cs_witness(path);
         zk_merkle_root->bits.fill_with_bits(this->pb, uint256_to_bool_vector(rt));
-        this->pb.val(value_enforce) = FieldT::one();
+
+        std::vector<FieldT> sib_fields(smt_siblings.size());
+        for (size_t i = 0; i < smt_siblings.size(); i++) {
+            sib_fields[i] = poseidon::field_from_uint256(smt_siblings[i]);
+        }
+        witness_input->generate_r1cs_witness(smt_path_bits, sib_fields);
 
         unpacker->generate_r1cs_witness_from_bits();
     }

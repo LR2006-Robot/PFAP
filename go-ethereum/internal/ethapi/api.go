@@ -26,7 +26,6 @@ import (
 	"fmt"
 	"math/big"
 	"math/rand"
-	"sort"
 	"strings"
 	"time"
 
@@ -1490,26 +1489,12 @@ func (s *PublicTransactionPoolAPI) SendMintTransaction(ctx context.Context, args
 		return common.Hash{}, errors.New("not enough balance")
 	}
 
+	// Membership of cmt_old is proven against the global Poseidon state
+	// Merkle tree (leaves = Poseidon(cmt)); rt is read from the global SMT.
 	var CMTSForMerkle []*common.Hash
-	for count := 0; count < zktx.ZKCMTNODES; {
-		blockNumber := rpc.BlockNumber(s.b.CurrentBlock().Number().Uint64() - uint64(count))
-		block, err := s.b.BlockByNumber(ctx, blockNumber)
-		if err != nil || block == nil {
-			count++
-			continue
-		}
-		CMTSForMerkle = append(CMTSForMerkle, block.CMTS()...)
-		count++
-	}
-	if len(CMTSForMerkle) == 0 {
-		CMTSForMerkle = append(CMTSForMerkle, SN.CMT)
-	}
-	RTcmt := zktx.GenRT(CMTSForMerkle)
+	RTcmt := zktx.GetSMTRoot()
 	RTcmtBytes := RTcmt.Bytes()
 	var CMTBlockNumbers []uint64
-	for count := 0; count < zktx.ZKCMTNODES; count++ {
-		CMTBlockNumbers = append(CMTBlockNumbers, s.b.CurrentBlock().Number().Uint64()-uint64(count))
-	}
 
 	txCreateStart := time.Now()
 	zkProof := zktx.GenMintProof(SN.Value, SN.Random, newSN, newRandom, SN.CMT, SN.SN, newCMT, newValue, SK, CMTSForMerkle, RTcmtBytes)
@@ -2062,26 +2047,12 @@ func (s *PublicTransactionPoolAPI) SendRedeemTransaction(ctx context.Context, ar
 	newCMT := zktx.GenCMT(newValue, newSN.Bytes(), newRandom.Bytes())
 	tx.SetZKCMT(newCMT)
 
+	// Membership of cmt_old is proven against the global Poseidon state
+	// Merkle tree; rt is read from the global SMT.
 	var CMTSForMerkle []*common.Hash
-	for count := 0; count < zktx.ZKCMTNODES; {
-		blockNumber := rpc.BlockNumber(s.b.CurrentBlock().Number().Uint64() - uint64(count))
-		block, err := s.b.BlockByNumber(ctx, blockNumber)
-		if err != nil || block == nil {
-			count++
-			continue
-		}
-		CMTSForMerkle = append(CMTSForMerkle, block.CMTS()...)
-		count++
-	}
-	if len(CMTSForMerkle) == 0 {
-		CMTSForMerkle = append(CMTSForMerkle, SN.CMT)
-	}
-	RTcmt := zktx.GenRT(CMTSForMerkle)
+	RTcmt := zktx.GetSMTRoot()
 	RTcmtBytes := RTcmt.Bytes()
 	var CMTBlockNumbers []uint64
-	for count := 0; count < zktx.ZKCMTNODES; count++ {
-		CMTBlockNumbers = append(CMTBlockNumbers, s.b.CurrentBlock().Number().Uint64()-uint64(count))
-	}
 
 	txCreateStart := time.Now()
 	zkProof := zktx.GenRedeemProof(SN.Value, SN.Random, newSN, newRandom, SN.CMT, SN.SN, newCMT, newValue, SK, CMTSForMerkle, RTcmtBytes)
@@ -2311,26 +2282,12 @@ if zktx.SequenceNumber == nil || zktx.SequenceNumberAfter == nil {
 	aux := zktx.ComputeAUXTransfer(valueS, rS, SN.SN)
 	tx.SetAUX(aux)
 
+	// Membership of cmt_A_old is proven against the global Poseidon state
+	// Merkle tree; rt is read from the global SMT.
 	var CMTSForMerkle []*common.Hash
-	for count := 0; count < zktx.ZKCMTNODES; {
-		blockNumber := rpc.BlockNumber(s.b.CurrentBlock().Number().Uint64() - uint64(count))
-		block, err := s.b.BlockByNumber(ctx, blockNumber)
-		if err != nil || block == nil {
-			count++
-			continue
-		}
-		CMTSForMerkle = append(CMTSForMerkle, block.CMTS()...)
-		count++
-	}
-	if len(CMTSForMerkle) == 0 {
-		CMTSForMerkle = append(CMTSForMerkle, SN.CMT)
-	}
-	RTcmt := zktx.GenRT(CMTSForMerkle)
+	RTcmt := zktx.GetSMTRoot()
 	RTcmtBytes := RTcmt.Bytes()
 	var CMTBlockNumbers []uint64
-	for count := 0; count < zktx.ZKCMTNODES; count++ {
-		CMTBlockNumbers = append(CMTBlockNumbers, s.b.CurrentBlock().Number().Uint64()-uint64(count))
-	}
 
 	tx.SetRTcmt(RTcmt)
 	tx.SetCMTBlocks(CMTBlockNumbers)
@@ -2416,7 +2373,6 @@ if zktx.SequenceNumber == nil || zktx.SequenceNumberAfter == nil {
 	proofA := txPayer.ZKProof()
 	valueS := txPayer.ZKValue()
 	rtCmt := txPayer.RTcmt()
-	cmtBlocks := txPayer.CMTBlocks()
 
 	if valueS <= 0 {
 		return common.Hash{}, errors.New("non-positive transfer amount")
@@ -2427,21 +2383,10 @@ if zktx.SequenceNumber == nil || zktx.SequenceNumberAfter == nil {
 		return common.Hash{}, errors.New("payer proof verification failed: " + err.Error())
 	}
 
-	// Build MT from seq and verify root matches
+	// Membership of cmt_B_old is proven against the global Poseidon state
+	// Merkle tree (rt validated by the ZK proof_B). cmt_A_old's membership
+	// is already proven by payer's proof_A above.
 	var CMTSForMerkle []*common.Hash
-	for i := range cmtBlocks {
-		block, err := s.b.BlockByNumber(ctx, rpc.BlockNumber(cmtBlocks[i]))
-		if err != nil || block == nil {
-			continue
-		}
-		CMTSForMerkle = append(CMTSForMerkle, block.CMTS()...)
-	}
-	if len(CMTSForMerkle) > 0 {
-		computedRT := zktx.GenRT(CMTSForMerkle)
-		if computedRT != rtCmt {
-			return common.Hash{}, errors.New("merkle root mismatch")
-		}
-	}
 
 	// Receiver B's state
 	account := accounts.Account{Address: args.From}
@@ -2467,23 +2412,9 @@ if zktx.SequenceNumber == nil || zktx.SequenceNumberAfter == nil {
 
 	SNb := zktx.SequenceNumberAfter
 
-	// Verify receiver's old commitment is in the merkle tree (compare values, not pointers)
-	cmtFound := false
-	SNbCMT := *SNb.CMT
-	for _, cmt := range CMTSForMerkle {
-		if *cmt == SNbCMT {
-			cmtFound = true
-			break
-		}
-	}
-	if !cmtFound {
-		// Log for debugging
-		fmt.Printf("DEBUG receiver CMT=%x not found in %d block CMTs\n", SNbCMT[:], len(CMTSForMerkle))
-		for i, cmt := range CMTSForMerkle {
-			fmt.Printf("DEBUG  CMT[%d]=%x\n", i, (*cmt)[:])
-		}
-		return common.Hash{}, errors.New("receiver's old commitment not found in block CMTs; receiver must CreateAccount/Mint before payer's Transfer")
-	}
+	// NOTE: legacy "receiver cmt must be in block CMTs" check removed; the
+	// receiver's proof_B (generated below) proves cmt_B_old's existence in the
+	// global Poseidon state Merkle tree directly.
 
 	SK := zktx.AccountSK
 	if SK == nil {
@@ -2506,7 +2437,7 @@ if zktx.SequenceNumber == nil || zktx.SequenceNumberAfter == nil {
 	tx.SetZKProof2(nil)        // will be set below
 	tx.SetZKValue(valueS)
 	tx.SetRTcmt(rtCmt)
-	tx.SetCMTBlocks(cmtBlocks)
+	tx.SetCMTBlocks(nil)
 	tx.SetZKNounce(1)          // type=1 (receiver)
 
 	// Generate proof_B (type=1)
@@ -2600,29 +2531,10 @@ func (s *PublicTransactionPoolAPI) sendTransferReceiverWithArgs(ctx context.Cont
 	cmtS := zktx.GenCMTStransfer(valueS, &rS)
 
 	// Dedup seq to avoid duplicate CMTs in merkle tree
-	seen := make(map[uint64]bool)
-	var dedupedSeq []uint64
-	for _, b := range args.Seq {
-		if !seen[b] {
-			seen[b] = true
-			dedupedSeq = append(dedupedSeq, b)
-		}
-	}
-	sort.Slice(dedupedSeq, func(i, j int) bool { return dedupedSeq[i] < dedupedSeq[j] })
-
-	// Build MT from user-provided seq
+	// rt is the current global Poseidon state Merkle tree root. seq is no
+	// longer used to build a per-tx tree.
 	var CMTSForMerkle []*common.Hash
-	for i := range dedupedSeq {
-		block, err := s.b.BlockByNumber(ctx, rpc.BlockNumber(dedupedSeq[i]))
-		if err != nil || block == nil {
-			continue
-		}
-		CMTSForMerkle = append(CMTSForMerkle, block.CMTS()...)
-	}
-	if len(CMTSForMerkle) == 0 {
-		return common.Hash{}, errors.New("no CMTs found for the provided seq")
-	}
-	rtCmt := zktx.GenRT(CMTSForMerkle)
+	rtCmt := zktx.GetSMTRoot()
 
 	// Verify payer's proof_A (type=0)
 	if err := zktx.VerifyTransferProof(cmtS, args.SnAOld, args.CmtANew, &rtCmt, valueS, 0, []byte(*args.ProofA)); err != nil {
@@ -2653,22 +2565,8 @@ func (s *PublicTransactionPoolAPI) sendTransferReceiverWithArgs(ctx context.Cont
 	SNb := zktx.SequenceNumberAfter
 	fmt.Printf("DEBUG receiver state: Value=%d CMT=%x SN=%x\n", SNb.Value, SNb.CMT[:], SNb.SN[:])
 
-	// Verify receiver's old commitment is in the merkle tree
-	cmtFound := false
-	SNbCMT := *SNb.CMT
-	for _, cmt := range CMTSForMerkle {
-		if *cmt == SNbCMT {
-			cmtFound = true
-			break
-		}
-	}
-	if !cmtFound {
-		fmt.Printf("DEBUG: receiver CMT=%x not found in %d block CMTs from seq=%v\n", SNbCMT[:], len(CMTSForMerkle), dedupedSeq)
-		for i, cmt := range CMTSForMerkle {
-			fmt.Printf("DEBUG:  CMT[%d]=%x\n", i, (*cmt)[:])
-		}
-		return common.Hash{}, errors.New("receiver's old commitment not found in block CMTs")
-	}
+	// NOTE: legacy "receiver cmt in block CMTs" check removed; proof_B proves
+	// cmt_B_old's existence in the global Poseidon state Merkle tree.
 
 	SK := zktx.AccountSK
 	if SK == nil {
@@ -2692,9 +2590,7 @@ func (s *PublicTransactionPoolAPI) sendTransferReceiverWithArgs(ctx context.Cont
 	tx.SetZKValue(valueS)
 	tx.SetRTcmt(rtCmt)
 
-	var CMTBlockNumbers []uint64
-	CMTBlockNumbers = append(CMTBlockNumbers, dedupedSeq...)
-	tx.SetCMTBlocks(CMTBlockNumbers)
+	tx.SetCMTBlocks(nil)
 	tx.SetZKNounce(1)
 
 	txCreateStart := time.Now()
@@ -2775,8 +2671,9 @@ func (s *PublicTransactionPoolAPI) GetAccountState(ctx context.Context) (map[str
 }
 
 // GetPayerNextState generates payer A's transfer proof and returns (cmt_A_new, sn_A_old, proof_A)
-// without submitting any transaction. Uses user-provided seq for Merkle tree construction.
-func (s *PublicTransactionPoolAPI) GetPayerNextState(ctx context.Context, seq []uint64, rs hexutil.Bytes, value hexutil.Uint64) (map[string]interface{}, error) {
+// without submitting any transaction. Membership of cmt_A_old is proven against the
+// global Poseidon state Merkle tree (no seq argument needed).
+func (s *PublicTransactionPoolAPI) GetPayerNextState(ctx context.Context, rs hexutil.Bytes, value hexutil.Uint64) (map[string]interface{}, error) {
 	if zktx.SequenceNumber == nil || zktx.SequenceNumberAfter == nil {
 		return nil, errors.New("SequenceNumber or SequenceNumberAfter nil")
 	}
@@ -2819,30 +2716,10 @@ func (s *PublicTransactionPoolAPI) GetPayerNextState(ctx context.Context, seq []
 	rS := common.BytesToHash(rs)
 	cmtS := zktx.GenCMTStransfer(valueS, &rS)
 
-	// Dedup seq to avoid duplicate CMTs in merkle tree
-	seen := make(map[uint64]bool)
-	var dedupedSeq []uint64
-	for _, b := range seq {
-		if !seen[b] {
-			seen[b] = true
-			dedupedSeq = append(dedupedSeq, b)
-		}
-	}
-	sort.Slice(dedupedSeq, func(i, j int) bool { return dedupedSeq[i] < dedupedSeq[j] })
-
-	// Build MT from user-provided seq
+	// Membership of cmt_A_old is proven against the global Poseidon state
+	// Merkle tree; no per-tx Merkle construction needed.
 	var CMTSForMerkle []*common.Hash
-	for i := range dedupedSeq {
-		block, err := s.b.BlockByNumber(ctx, rpc.BlockNumber(dedupedSeq[i]))
-		if err != nil || block == nil {
-			continue
-		}
-		CMTSForMerkle = append(CMTSForMerkle, block.CMTS()...)
-	}
-	if len(CMTSForMerkle) == 0 {
-		CMTSForMerkle = append(CMTSForMerkle, SN.CMT)
-	}
-	RTcmt := zktx.GenRT(CMTSForMerkle)
+	RTcmt := zktx.GetSMTRoot()
 	RTcmtBytes := RTcmt.Bytes()
 
 	// Generate proof_A (type=0)

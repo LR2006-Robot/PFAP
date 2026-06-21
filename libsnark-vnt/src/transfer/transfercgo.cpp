@@ -17,12 +17,13 @@
 #include "Note.h"
 #include "uint256.h"
 #include "transfercgo.hpp"
-#include "IncrementalMerkleTree.hpp"
+#include "poseidon.hpp"
+#include "poseidon_smt.hpp"
+#include "smtcgo.hpp"
 
 using namespace libsnark;
 using namespace libff;
 using namespace std;
-using namespace libvnt;
 
 #include "circuit/gadget.tcc"
 
@@ -202,7 +203,8 @@ r1cs_gg_ppzksnark_proof<ppzksnark_ppT> generate_transfer_proof(r1cs_gg_ppzksnark
                                                            uint256 cmtA_old,
                                                            uint256 cmtA,
                                                            const uint256 &rt,
-                                                           const MerklePath &path,
+                                                           const std::vector<bool> &smt_path_bits,
+                                                           const std::vector<uint256> &smt_siblings,
                                                            uint8_t type_val
                                                            )
 {
@@ -212,7 +214,7 @@ r1cs_gg_ppzksnark_proof<ppzksnark_ppT> generate_transfer_proof(r1cs_gg_ppzksnark
     transfer_gadget<FieldT> transfer(pb);
     transfer.generate_r1cs_constraints();
 
-    transfer.generate_r1cs_witness(note_old, note, v_s, r_s_data, sk_data, cmtS, cmtA_old, cmtA, rt, path, type_val);
+    transfer.generate_r1cs_witness(note_old, note, v_s, r_s_data, sk_data, cmtS, cmtA_old, cmtA, rt, smt_path_bits, smt_siblings, type_val);
 
     if (!pb.is_satisfied())
     {
@@ -221,6 +223,25 @@ r1cs_gg_ppzksnark_proof<ppzksnark_ppT> generate_transfer_proof(r1cs_gg_ppzksnark
     }
 
     return r1cs_gg_ppzksnark_prover<ppzksnark_ppT>(proving_key, pb.primary_input(), pb.auxiliary_input());
+}
+
+// Parse the output buffer produced by smtProve().
+static bool parseSmtProof(const char* buf,
+                          std::vector<bool>& path_bits,
+                          std::vector<uint256>& siblings,
+                          uint256& root)
+{
+    std::string s = buf;
+    if (s.size() < (size_t)(1 + 256 + 256 * 64 + 64)) return false;
+    bool found = (s[0] == '1');
+    size_t pos = 1;
+    path_bits.resize(256);
+    for (size_t i = 0; i < 256; i++) path_bits[i] = (s[pos + i] == '1');
+    pos += 256;
+    siblings.resize(256);
+    for (size_t i = 0; i < 256; i++) { siblings[i] = uint256S(s.substr(pos, 64)); pos += 64; }
+    root = uint256S(s.substr(pos, 64));
+    return found;
 }
 
 template <typename ppzksnark_ppT>
@@ -292,26 +313,12 @@ char* computePRF(char* sk_string, char* r_string)
 
 char *genRoot(char *cmtarray, int n)
 {
-    boost::array<uint256, 256> commitments;
-
-    string s = cmtarray;
-
-    ZCIncrementalMerkleTree tree;
-    assert(tree.root() == ZCIncrementalMerkleTree::empty_root());
-
-    for (int i = 0; i < n; i++)
-    {
-        commitments[i] = uint256S(s.substr(i * 66, 66));
-        tree.append(commitments[i]);
-    }
-
-    uint256 rt = tree.root();
-    std::string rt_c = rt.ToString();
-
+    (void)cmtarray; (void)n;
+    char *rt = smtGetRoot();
     char *p = new char[65];
-    rt_c.copy(p, 64, 0);
-    *(p + 64) = '\0';
-
+    memcpy(p, rt, 64);
+    p[64] = '\0';
+    smtFree(rt);
     return p;
 }
 
@@ -341,6 +348,8 @@ char *genTransferproof(uint64_t value,
     uint256 sk = uint256S(sk_string);
     uint256 r_s = uint256S(r_s_string);
 
+    (void)cmtarray; (void)n; (void)RT;
+
     Note note_old = Note(value_old, sn_old, r_old);
 
     Note note = Note(value, sn, r_new);
@@ -348,56 +357,21 @@ char *genTransferproof(uint64_t value,
     NoteS note_s = NoteS(value_s, r_s);
     uint256 cmtS = note_s.cm();
 
-    boost::array<uint256, 256> commitments;
-    string sss = cmtarray;
-
-    for (int i = 0; i < n; i++)
-    {
-        commitments[i] = uint256S(sss.substr(i * 66, 66));
-    }
-
-    MerklePath path;
+    std::vector<bool> smt_path_bits;
+    std::vector<uint256> smt_siblings;
     uint256 rt;
-    try {
-        ZCIncrementalMerkleTree tree;
-        assert(tree.root() == ZCIncrementalMerkleTree::empty_root());
-
-        ZCIncrementalWitness wit = tree.witness();
-        bool find_cmtA_old = false;
-        for (size_t i = 0; i < n; i++)
-        {
-            if (find_cmtA_old)
-            {
-                wit.append(commitments[i]);
-            }
-            else
-            {
-                tree.append(commitments[i]);
-            }
-
-            if (commitments[i] == cmtA_old)
-            {
-                wit = tree.witness();
-                find_cmtA_old = true;
-            }
-        }
-        if (!find_cmtA_old) {
-            printf("transfer: cmtA_old not found in commitments\n");
+    {
+        char *proofBuf = smtProve(cmtA_old_string);
+        bool found = parseSmtProof(proofBuf, smt_path_bits, smt_siblings, rt);
+        smtFree(proofBuf);
+        if (!found) {
+            printf("transfer: cmtA_old not found in global state Merkle tree\n");
             fflush(stdout);
             char *p = new char[1153];
             memset(p, '0', 1152);
             *(p + 1152) = '\0';
             return p;
         }
-        path = wit.path();
-        rt = wit.root();
-    } catch (const std::exception &e) {
-        printf("transfer: merkle tree error: %s\n", e.what());
-        fflush(stdout);
-        char *p = new char[1153];
-        memset(p, '0', 1152);
-        *(p + 1152) = '\0';
-        return p;
     }
 
 alt_bn128_pp::init_public_params();
@@ -424,9 +398,10 @@ r1cs_gg_ppzksnark_keypair<alt_bn128_pp> keypair;
                                                                                                        cmtS,
                                                                                                        cmtA_old,
                                                                                                        cmtA,
-                                                                                                       rt,
-                                                                                                       path,
-                                                                                                       type_val);
+                                                                                                        rt,
+                                                                                                        smt_path_bits,
+                                                                                                        smt_siblings,
+                                                                                                        type_val);
 
     gettimeofday(&proof_end, NULL);
     proof_timeuse = proof_end.tv_sec - proof_start.tv_sec + (proof_end.tv_usec - proof_start.tv_usec)/1000000.0;

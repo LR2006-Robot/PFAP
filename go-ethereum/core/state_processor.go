@@ -192,6 +192,23 @@ func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *commo
 		fmt.Println("***** Verify createAccount transaction Cost Time (ms): ", time.Since(txVerifyStart).Nanoseconds()/1000000, " Tx Size (bytes): ", tx.Size())
 	}
 
+	// Update the global Poseidon state Merkle tree with the new commitment(s)
+	// produced by this ZK transaction, setting their leaves (path=Poseidon(cmt))
+	// to 1. This keeps every node's SMT in sync as blocks are processed.
+	switch tx.TxCode() {
+	case types.MintTx, types.SendTx, types.DepositTx, types.RedeemTx, types.CreateAccountTx:
+		if tx.ZKCMT() != nil {
+			zktx.InsertCMT(tx.ZKCMT())
+		}
+	case types.TransferTx:
+		if tx.ZKCMT() != nil {
+			zktx.InsertCMT(tx.ZKCMT())
+		}
+		if tx.ZKProof2() != nil && len(tx.ZKProof2()) > 0 && tx.ZKCMT2() != nil {
+			zktx.InsertCMT(tx.ZKCMT2())
+		}
+	}
+
 	// Apply the transaction to the current state (included in the env)
 	_, gas, failed, err := ApplyMessage(vmenv, msg, gp)
 	if err != nil {

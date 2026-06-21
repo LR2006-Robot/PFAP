@@ -17,14 +17,38 @@
 #include "Note.h"
 #include "uint256.h"
 #include "mintcgo.hpp"
-#include "IncrementalMerkleTree.hpp"
+#include "poseidon.hpp"
+#include "poseidon_smt.hpp"
+#include "smtcgo.hpp"
 
 using namespace libsnark;
 using namespace libff;
 using namespace std;
-using namespace libvnt;
 
 #include "circuit/gadget.tcc"
+
+// Parse the output buffer produced by smtProve() into (found, path_bits,
+// siblings, root). Layout: [found][256 path bits][256*64 sibling hex][64 root hex].
+static bool parseSmtProof(const char* buf,
+                          std::vector<bool>& path_bits,
+                          std::vector<uint256>& siblings,
+                          uint256& root)
+{
+    std::string s = buf;
+    if (s.size() < (size_t)(1 + 256 + 256 * 64 + 64)) return false;
+    bool found = (s[0] == '1');
+    size_t pos = 1;
+    path_bits.resize(256);
+    for (size_t i = 0; i < 256; i++) path_bits[i] = (s[pos + i] == '1');
+    pos += 256;
+    siblings.resize(256);
+    for (size_t i = 0; i < 256; i++) {
+        siblings[i] = uint256S(s.substr(pos, 64));
+        pos += 64;
+    }
+    root = uint256S(s.substr(pos, 64));
+    return found;
+}
 
 int convertFromAscii(uint8_t ch)
 {
@@ -200,7 +224,8 @@ r1cs_gg_ppzksnark_proof<ppzksnark_ppT> generate_mint_proof(r1cs_gg_ppzksnark_pro
                                                         uint64_t value_s,
                                                         uint256 sk_data,
                                                         const uint256 &rt,
-                                                        const MerklePath &path
+                                                        const std::vector<bool> &smt_path_bits,
+                                                        const std::vector<uint256> &smt_siblings
                                                         )
 {
     typedef Fr<ppzksnark_ppT> FieldT;
@@ -209,7 +234,7 @@ r1cs_gg_ppzksnark_proof<ppzksnark_ppT> generate_mint_proof(r1cs_gg_ppzksnark_pro
     mint_gadget<FieldT> g(pb);
     g.generate_r1cs_constraints();
 
-    g.generate_r1cs_witness(note_old, note, cmtA_old, cmtA, value_s, sk_data, rt, path);
+    g.generate_r1cs_witness(note_old, note, cmtA_old, cmtA, value_s, sk_data, rt, smt_path_bits, smt_siblings);
 
     if (!pb.is_satisfied())
     {
@@ -270,26 +295,14 @@ char* computePRF(char* sk_string, char* r_string)
 
 char *genRoot(char *cmtarray, int n)
 {
-    boost::array<uint256, 256> commitments;
-
-    string s = cmtarray;
-
-    ZCIncrementalMerkleTree tree;
-    assert(tree.root() == ZCIncrementalMerkleTree::empty_root());
-
-    for (int i = 0; i < n; i++)
-    {
-        commitments[i] = uint256S(s.substr(i * 66, 66));
-        tree.append(commitments[i]);
-    }
-
-    uint256 rt = tree.root();
-    std::string rt_c = rt.ToString();
-
+    // Deprecated: the seq-based root is replaced by the global Poseidon state
+    // Merkle tree. Return the current global SMT root for compatibility.
+    (void)cmtarray; (void)n;
+    char *rt = smtGetRoot();
     char *p = new char[65];
-    rt_c.copy(p, 64, 0);
-    *(p + 64) = '\0';
-
+    memcpy(p, rt, 64);
+    p[64] = '\0';
+    smtFree(rt);
     return p;
 }
 
@@ -303,8 +316,8 @@ char *genMintproof(uint64_t value,
                    char *cmtA_string,
                    uint64_t value_s,
                    char *sk_string,
-                   char *cmtarray,
-                   int n,
+                   char *cmtA_old_for_smt,
+                   int unused,
                    char *RT
                    )
 {
@@ -315,60 +328,33 @@ char *genMintproof(uint64_t value,
     uint256 cmtA_old = uint256S(cmtA_old_string);
     uint256 cmtA = uint256S(cmtA_string);
     uint256 sk = uint256S(sk_string);
-    uint256 rt = uint256S(RT);
+
+    (void)cmtA_old_for_smt; (void)unused;
 
     Note note_old = Note(value_old, sn_old, r_old);
     Note note = Note(value, sn, r);
 
-    boost::array<uint256, 256> commitments;
-    string sss = cmtarray;
-
-    for (int i = 0; i < n; i++)
+    // Obtain the Poseidon SMT membership witness for cmtA_old from the global
+    // state Merkle tree. rt is taken from the witness (the current tree root).
+    std::vector<bool> smt_path_bits;
+    std::vector<uint256> smt_siblings;
+    uint256 rt;
     {
-        commitments[i] = uint256S(sss.substr(i * 66, 66));
-    }
-
-    MerklePath path;
-    try {
-        ZCIncrementalMerkleTree tree;
-        assert(tree.root() == ZCIncrementalMerkleTree::empty_root());
-
-        ZCIncrementalWitness wit = tree.witness();
-        bool find_cmt = false;
-        for (size_t i = 0; i < (size_t)n; i++)
-        {
-            if (find_cmt)
-            {
-                wit.append(commitments[i]);
-            }
-            else
-            {
-                tree.append(commitments[i]);
-            }
-
-            if (commitments[i] == cmtA_old)
-            {
-                wit = tree.witness();
-                find_cmt = true;
-            }
-        }
-        if (!find_cmt) {
-            printf("mint: cmtA_old not found in commitments\n");
+        char *proofBuf = smtProve(cmtA_old_string);
+        bool found = parseSmtProof(proofBuf, smt_path_bits, smt_siblings, rt);
+        smtFree(proofBuf);
+        if (!found) {
+            printf("mint: cmtA_old not found in global state Merkle tree\n");
             fflush(stdout);
             char *p = new char[1153];
             memset(p, '0', 1152);
             *(p + 1152) = '\0';
             return p;
         }
-        path = wit.path();
-    } catch (const std::exception &e) {
-        printf("mint: merkle tree error: %s\n", e.what());
-        fflush(stdout);
-        char *p = new char[1153];
-        memset(p, '0', 1152);
-        *(p + 1152) = '\0';
-        return p;
     }
+    // RT param is accepted for ABI compatibility but the authoritative root is
+    // the SMT witness root (they must match the tx's claimed rt).
+    (void)RT;
 
     alt_bn128_pp::init_public_params();
 
@@ -385,7 +371,7 @@ char *genMintproof(uint64_t value,
     double proof_timeuse;
     gettimeofday(&proof_start, NULL);
 
-    libsnark::r1cs_gg_ppzksnark_proof<libff::alt_bn128_pp> proof = generate_mint_proof<alt_bn128_pp>(keypair.pk, note_old, note, cmtA_old, cmtA, value_s, sk, rt, path);
+    libsnark::r1cs_gg_ppzksnark_proof<libff::alt_bn128_pp> proof = generate_mint_proof<alt_bn128_pp>(keypair.pk, note_old, note, cmtA_old, cmtA, value_s, sk, rt, smt_path_bits, smt_siblings);
 
     gettimeofday(&proof_end, NULL);
     proof_timeuse = proof_end.tv_sec - proof_start.tv_sec + (proof_end.tv_usec - proof_start.tv_usec)/1000000.0;

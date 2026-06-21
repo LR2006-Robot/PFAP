@@ -1,13 +1,14 @@
 package zktx
 
 /*
-#cgo LDFLAGS: -L/usr/local/lib -lzk_mint  -lzk_send  -lzk_deposit -lzk_redeem -lzk_transfer -lzk_createaccount -lff  -lsnark -lstdc++  -lgmp -lgmpxx
+#cgo LDFLAGS: -L/usr/local/lib -lzk_mint  -lzk_send  -lzk_deposit -lzk_redeem -lzk_transfer -lzk_createaccount -lzk_smt -lff  -lsnark -lstdc++  -lgmp -lgmpxx
 #include "mintcgo.hpp"
 #include "sendcgo.hpp"
 #include "depositcgo.hpp"
 #include "redeemcgo.hpp"
 #include "transfercgo.hpp"
 #include "createaccountcgo.hpp"
+#include "smtcgo.hpp"
 #include <stdlib.h>
 */
 import "C"
@@ -310,6 +311,29 @@ func GenRT(CMTSForMerkle []*common.Hash) common.Hash {
 	res, _ := hex.DecodeString(rtGo)   //返回32长度 []byte  一个byte代表两位16进制数
 	reshash := common.BytesToHash(res) //32长度byte数组
 	return reshash
+}
+
+// InsertCMT inserts a commitment into the global Poseidon state Merkle tree,
+// setting its leaf (path = Poseidon(cmt)) to 1. Called by miners/nodes when a
+// commitment is confirmed on-chain. Idempotent.
+func InsertCMT(cmt *common.Hash) {
+	cmt_c := C.CString(common.ToHex(cmt[:]))
+	defer C.free(unsafe.Pointer(cmt_c))
+	C.smtInsertCMT(cmt_c)
+}
+
+// GetSMTRoot returns the current root of the global Poseidon state Merkle tree.
+func GetSMTRoot() common.Hash {
+	rtC := C.smtGetRoot()
+	rtGo := C.GoString(rtC)
+	C.smtFree(rtC)
+	res, _ := hex.DecodeString(rtGo)
+	return common.BytesToHash(res)
+}
+
+// ResetSMT clears the global state Merkle tree (fresh chain / tests).
+func ResetSMT() {
+	C.smtReset()
 }
 
 func ComputeR(sk *big.Int) *ecdsa.PublicKey {
