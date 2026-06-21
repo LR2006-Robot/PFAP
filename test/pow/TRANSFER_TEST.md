@@ -146,17 +146,14 @@ console.log("receiver state:", b2)
 Continue in **Terminal 1 (signer1 - payer)**:
 
 ```javascript
-// 1. Build the seq array (contains the blocks of both CMTs plus a few surrounding blocks)
-var bn1 = parseInt(b1.lastTxBlockNumber, 16)
-var bn2 = parseInt(b2.lastTxBlockNumber, 16)
-var seq = [bn1-2, bn1-1, bn1, bn2-2, bn2-1, bn2]
-
-// 2. Transfer parameters
+// 1. Transfer parameters
 var valueS = "0x10"     // transfer amount (16)
 var rs = "0x01"         // random value agreed by both parties
 
-// 3. Generate the payer-side proof (no tx broadcast yet)
-var payerData = eth.getPayerNextState(seq, rs, valueS)
+// 2. Generate the payer-side proof (no tx broadcast yet).
+//    Membership of cmt_A_old is proven against the global Poseidon state
+//    Merkle tree, so no block `seq` is required.
+var payerData = eth.getPayerNextState(rs, valueS)
 console.log("payer data:", payerData)
 
 /* payerData contains:
@@ -178,14 +175,12 @@ Copy `payerData` from **Terminal 1** to **Terminal 2**. In **Terminal 2 (signer2
 // Transfer parameters
 var valueS = "0x10"     // transfer amount (16)
 var rs = "0x01"         // random value agreed by both parties
-var seq = [<bn1-2>, <bn1-1>, <bn1>, <bn2-2>, <bn2-1>, <bn2>]  // copy manually from Terminal 1
 
 // Submit the final tx using the data received from the payer
 eth.sendTransferTransaction({
     from: eth.accounts[0],
     value: valueS,
     rs: rs,
-    seq: seq,
     cmtANew: payerData.cmtANew,
     snAOld: payerData.snAOld,
     proofA: payerData.proofA
