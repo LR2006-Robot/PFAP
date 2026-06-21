@@ -1,8 +1,8 @@
 # PFAP
 
-PFAP is a ZK-transaction blockchain built on a geth fork. It provides four privacy-preserving transaction circuits — **CreateAccount**, **Mint**, **Redeem**, and **Transfer** — where account balances are hidden inside commitments and spending is authorized with zk-SNARK proofs.
+PFAP is an anonymous payment scheme built on Ethereum and a geth fork. It provides four privacy-preserving transaction circuits — **CreateAccount**, **Mint**, **Redeem**, and **Transfer** — where account balances are hidden inside commitments and secretly spending is authorized with zk-SNARK proofs.
 
-Existence of a spent commitment `cmt_old` is proven against a single **global depth-256 sparse Poseidon Merkle tree (the state Merkle tree)**, shared by Mint / Redeem / Transfer. Inside the circuit the leaf is `path = Poseidon(cmt_old)` and all tree nodes use Poseidon, while the commitment `cmt` itself is computed with SHA-256. The membership witness (path + 256 siblings + root `rt_cmt`) is generated on the C++ side from the global tree. The tree is an in-memory singleton (in `libzk_smt.so`) that every node rebuilds deterministically by replaying confirmed commitments during block processing.
+Existence of a spent commitment `cmt_old` is proven against a single **global depth-256 sparse Poseidon Merkle tree (the state Merkle tree)**, shared by Mint / Redeem / Transfer. Inside the circuit the leaf is `path = Poseidon(cmt_old)` and all tree nodes use Poseidon, while the commitment `cmt` itself is computed with SHA-256. The membership witness (path + 256 siblings + root `rt_cmt`) is generated on the C++ side from the global tree.
 
 ## Repository layout
 
@@ -13,7 +13,6 @@ PFAP/
 ├── prfKey/         generated (pk, vk) files (produced after build)
 ├── test/
 │   ├── pow/        PoW test environment (includes Transfer walkthrough)
-│   └── clique/     PoA test environment
 └── build.sh        one-shot build/install script
 ```
 
@@ -101,7 +100,7 @@ Note: any change to circuit structure invalidates (pk, vk); all nodes must be re
 
 ## 3. Running nodes
 
-Using `test/pow` as the example (`test/clique` for PoA, same flow). The
+Using `test/pow` as the example. The
 `signerX/` directories only ship with `passwd.txt`; you must create a fresh
 account in each datadir and then unlock that exact address.
 
@@ -157,7 +156,6 @@ miner.start()
 ```javascript
 eth.getBalance(addr)        // plaintext balance
 eth.getAccountState()       // { balance, commitment, lastTxBlockNumber }
-eth.getPubKeyRLP(addr, "")  // node's public key RLP
 ```
 
 ### 4.2 Single-party transactions
@@ -178,20 +176,16 @@ eth.sendRedeemTransaction({from: eth.accounts[0], value: "0x123"})
 A Transfer is **submitted by the receiver (B)**, but the payer (A) must first generate a proof locally. While a Transfer is in progress, **neither side should issue other ZK transactions**.
 
 ```javascript
-// 1) Both sides query their current state
-// Terminal A
-var b1 = eth.getAccountState()
-// Terminal B
-var b2 = eth.getAccountState()
-
-// 2) Payer A: generate the proof (no tx broadcast yet) and stage the new local state.
+// Terminal 1
+// 1) Payer A: generate the proof (no tx broadcast yet) and stage the new local state.
 //    Membership of cmt_A_old is proven against the global Poseidon state Merkle tree.
 var valueS = "0x10"
 var rs     = "0x01"
 var payerData = eth.getPayerNextState(rs, valueS)
 // payerData = { cmtANew, snAOld, proofA }
 
-// 3) Ship payerData / valueS / rs to receiver B, who submits the final tx
+// Terminal 2
+// 2) Ship payerData / valueS / rs to receiver B, who submits the final tx
 eth.sendTransferTransaction({
     from:    eth.accounts[0],
     value:   valueS,
