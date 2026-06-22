@@ -98,6 +98,8 @@ After editing any `.tcc / .cpp` under `libsnark-vnt/src`:
 
 Note: any change to circuit structure invalidates (pk, vk); all nodes must be re-synced with the new keys.
 
+![Build](docs/images/Build.gif)
+
 ## 3. Running nodes
 
 Using `test/pow` as the example. The
@@ -149,6 +151,8 @@ net.peerCount
 miner.start()
 ```
 
+![Running nodes](docs/images/Running-nodes.gif)
+
 ## 4. RPC / console API
 
 ### 4.1 Balances & account state
@@ -157,6 +161,8 @@ miner.start()
 eth.getBalance(addr)        // plaintext balance
 eth.getAccountState()       // { balance, commitment, lastTxBlockNumber }
 ```
+
+![Balances & account state](docs/images/Balances-account_state.gif)
 
 ### 4.2 Single-party transactions
 
@@ -170,6 +176,8 @@ eth.sendMintTransaction({from: eth.accounts[0], value: "0x1234"})
 // ZK → plaintext
 eth.sendRedeemTransaction({from: eth.accounts[0], value: "0x123"})
 ```
+
+![Single-party transactions](docs/images/Single-party.gif)
 
 ### 4.3 Transfer (cooperative ZK → ZK)
 
@@ -198,6 +206,8 @@ eth.sendTransferTransaction({
 // 4) Both sides verify
 eth.getAccountState()
 ```
+
+![Transfer](docs/images/Transfer.gif)
 
 A complete end-to-end walkthrough is in [`test/pow/TRANSFER_TEST.md`](./test/pow/TRANSFER_TEST.md).
 
