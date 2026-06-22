@@ -12,14 +12,12 @@ include_directories(
 # 生成链接库
 ################
 # Global Poseidon sparse-Merkle-tree (state Merkle Tree) shared library.
-# All circuit libraries link against this single shared instance.
 add_library(
   zk_smt
   SHARED
   smt/smtcgo.cpp
 )
 
-#shared library
 add_library(
   zk_mint
   SHARED
@@ -33,24 +31,6 @@ add_library(
   redeem/redeemcgo.cpp
 )
 target_link_libraries(zk_redeem zk_smt)
-
-add_library(
-  zk_send
-  SHARED
-  send/sendcgo.cpp
-)
-
-#add_library(
-#  zk_update
-#  SHARED
-#  update/updatecgo.cpp
-#)
-
-add_library(
-  zk_deposit
-  SHARED
-  deposit/depositcgo.cpp
-)
 
 add_library(
   zk_transfer
@@ -70,285 +50,38 @@ add_library(
 ###############################
 add_executable(
   mint_key
-
   mint/getpvk.cpp
 )
+target_link_libraries(mint_key snark)
+target_include_directories(mint_key PUBLIC ${DEPENDS_DIR}/libsnark ${DEPENDS_DIR}/libsnark/depends/libfqfft)
 
-target_link_libraries(
-  mint_key
-
-  snark
-)
-
-target_include_directories(
-  mint_key
-
-  PUBLIC
-  ${DEPENDS_DIR}/libsnark
-  ${DEPENDS_DIR}/libsnark/depends/libfqfft
-)
-#########################
-add_executable(
-  send_key
-
-  send/getpvk.cpp
-)
-
-target_link_libraries(
-  send_key
-
-  snark
-)
-
-target_include_directories(
-  send_key
-
-  PUBLIC
-  ${DEPENDS_DIR}/libsnark
-  ${DEPENDS_DIR}/libsnark/depends/libfqfft
-)
-#########################
-#add_executable(
-#  update_key
-#
-#  update/getpvk.cpp
-#)
-
-#target_link_libraries(
-#  update_key
-#
-#  snark
-#)
-
-#target_include_directories(
-#  update_key
-
-#  PUBLIC
-#  ${DEPENDS_DIR}/libsnark
-#  ${DEPENDS_DIR}/libsnark/depends/libfqfft
-#)
-#########################
-add_executable(
-  deposit_key
-
-  deposit/getpvk.cpp
-)
-
-target_link_libraries(
-  deposit_key
-
-  snark
-)
-
-target_include_directories(
-  deposit_key
-
-  PUBLIC
-  ${DEPENDS_DIR}/libsnark
-  ${DEPENDS_DIR}/libsnark/depends/libfqfft
-)
-#########################
 add_executable(
   redeem_key
-
   redeem/getpvk.cpp
 )
+target_link_libraries(redeem_key snark)
+target_include_directories(redeem_key PUBLIC ${DEPENDS_DIR}/libsnark ${DEPENDS_DIR}/libsnark/depends/libfqfft)
 
-target_link_libraries(
-  redeem_key
-
-  snark
-)
-
-target_include_directories(
-  redeem_key
-
-  PUBLIC
-  ${DEPENDS_DIR}/libsnark
-  ${DEPENDS_DIR}/libsnark/depends/libfqfft
-)
-#########################
 add_executable(
   transfer_key
-
   transfer/getpvk.cpp
 )
+target_link_libraries(transfer_key snark)
+target_include_directories(transfer_key PUBLIC ${DEPENDS_DIR}/libsnark ${DEPENDS_DIR}/libsnark/depends/libfqfft)
 
-target_link_libraries(
-  transfer_key
-
-  snark
-)
-
-target_include_directories(
-  transfer_key
-
-  PUBLIC
-  ${DEPENDS_DIR}/libsnark
-  ${DEPENDS_DIR}/libsnark/depends/libfqfft
-)
-#########################
 add_executable(
   createaccount_key
-
   createAccount/getpvk.cpp
 )
-
-target_link_libraries(
-  createaccount_key
-
-  snark
-)
-
-target_include_directories(
-  createaccount_key
-
-  PUBLIC
-  ${DEPENDS_DIR}/libsnark
-  ${DEPENDS_DIR}/libsnark/depends/libfqfft
-)
+target_link_libraries(createaccount_key snark)
+target_include_directories(createaccount_key PUBLIC ${DEPENDS_DIR}/libsnark ${DEPENDS_DIR}/libsnark/depends/libfqfft)
 
 ##########################################
 # test setup, genProof and verProof
-#########################################
-#add_executable(
-#  redeem
-#
-#  redeem/main.cpp
-#)
-#
-#target_link_libraries(
-#  redeem
-#
-#  snark
-#)
-#
-#target_include_directories(
-#  redeem
-#
-#  PUBLIC
-#  ${DEPENDS_DIR}/libsnark
-#  ${DEPENDS_DIR}/libsnark/depends/libfqfft
-#)
-#########################################
-#add_executable(
-#  transfer
-#
-#  transfer/main.cpp
-#)
-#
-#target_link_libraries(
-#  transfer
-#
-#  snark
-#)
-#
-#target_include_directories(
-#  transfer
-#
-#  PUBLIC
-#  ${DEPENDS_DIR}/libsnark
-#  ${DEPENDS_DIR}/libsnark/depends/libfqfft
-#)
-
-add_executable(
-  send
-
-  send/main.cpp
-)
-
-target_link_libraries(
-  send
-
-  snark
-)
-
-target_include_directories(
-  send
-
-  PUBLIC
-  ${DEPENDS_DIR}/libsnark
-  ${DEPENDS_DIR}/libsnark/depends/libfqfft
-)
-#########################
-add_executable(
-  deposit
-
-  deposit/main.cpp
-)
-
-target_link_libraries(
-  deposit
-
-  snark
-)
-
-target_include_directories(
-  deposit
-
-  PUBLIC
-  ${DEPENDS_DIR}/libsnark
-  ${DEPENDS_DIR}/libsnark/depends/libfqfft
-)
-#########################
-# redeem/transfer standalone tests disabled (legacy MerklePath API).
-#add_executable(
-#  redeem
-#
-#  redeem/main.cpp
-#)
-#
-#target_link_libraries(
-#  redeem
-#
-#  snark
-#)
-#
-#target_include_directories(
-#  redeem
-#
-#  PUBLIC
-#  ${DEPENDS_DIR}/libsnark
-#  ${DEPENDS_DIR}/libsnark/depends/libfqfft
-#)
-#########################
-#add_executable(
-#  transfer
-#
-#  transfer/main.cpp
-#)
-#
-#target_link_libraries(
-#  transfer
-#
-#  snark
-#)
-#
-#target_include_directories(
-#  transfer
-#
-#  PUBLIC
-#  ${DEPENDS_DIR}/libsnark
-#  ${DEPENDS_DIR}/libsnark/depends/libfqfft
-#)
-#########################
+##########################################
 add_executable(
   createaccount
-
   createAccount/main.cpp
 )
-
-target_link_libraries(
-  createaccount
-
-  snark
-)
-
-target_include_directories(
-  createaccount
-
-  PUBLIC
-  ${DEPENDS_DIR}/libsnark
-  ${DEPENDS_DIR}/libsnark/depends/libfqfft
-)
-
+target_link_libraries(createaccount snark)
+target_include_directories(createaccount PUBLIC ${DEPENDS_DIR}/libsnark ${DEPENDS_DIR}/libsnark/depends/libfqfft)

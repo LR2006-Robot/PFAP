@@ -17,7 +17,6 @@
 package core
 
 import (
-	"crypto/ecdsa"
 	"errors"
 	"fmt"
 	"time"
@@ -119,38 +118,6 @@ func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *commo
 		statedb.CreateAccount(common.BytesToAddress(tx.ZKSN().Bytes()))
 		statedb.SetNonce(common.BytesToAddress(tx.ZKSN().Bytes()), 1)
 		fmt.Println("***** Verify mint transaction Cost Time (ms): ", time.Since(txVerifyStart).Nanoseconds()/1000000, " Tx Size (bytes): ", tx.Size())
-	} else if tx.TxCode() == types.SendTx {
-		txVerifyStart := time.Now()
-		cmtbalance := statedb.GetCMTBalance(msg.From())
-		if exist := statedb.Exist(common.BytesToAddress(tx.ZKSN().Bytes())); exist == true && (*(tx.ZKSN()) != *(initSN)) {
-			return nil, 0, errors.New("sn is already used ")
-		}
-		if err = zktx.VerifySendProof(tx.ZKSN(), tx.ZKCMTS(), tx.ZKProof(), &cmtbalance, tx.ZKCMT()); err != nil {
-			fmt.Println("invalid zk send proof: ", err)
-			return nil, 0, err
-		}
-		statedb.CreateAccount(common.BytesToAddress(tx.ZKSN().Bytes()))
-		statedb.SetNonce(common.BytesToAddress(tx.ZKSN().Bytes()), 1)
-		fmt.Println("***** Verify send transaction Cost Time (ms): ", time.Since(txVerifyStart).Nanoseconds()/1000000, " Tx Size (bytes): ", tx.Size())
-	} else if tx.TxCode() == types.DepositTx {
-		txVerifyStart := time.Now()
-		if exist := statedb.Exist(common.BytesToAddress(tx.ZKSN().Bytes())); exist == true && (*(tx.ZKSN()) != *(initSN)) {
-			return nil, 0, errors.New("sn in deposit tx has been already used")
-		}
-		cmtbalance := statedb.GetCMTBalance(msg.From())
-		addr1, err := types.ExtractPKBAddress(types.HomesteadSigner{}, tx)
-		ppp := ecdsa.PublicKey{crypto.S256(), tx.X(), tx.Y()}
-		addr2 := crypto.PubkeyToAddress(ppp)
-		if err != nil || addr1 != addr2 {
-			return nil, 0, errors.New("invalid depositTx signature ")
-		}
-		if err = zktx.VerifyDepositProof(&ppp, tx.RTcmt(), &cmtbalance, tx.ZKSN(), tx.ZKCMT(), tx.ZKSNS(), tx.ZKProof()); err != nil {
-			fmt.Println("invalid zk deposit proof: ", err)
-			return nil, 0, err
-		}
-		statedb.CreateAccount(common.BytesToAddress(tx.ZKSN().Bytes()))
-		statedb.SetNonce(common.BytesToAddress(tx.ZKSN().Bytes()), 1)
-		fmt.Println("***** Verify deposit transaction Cost Time (ms): ", time.Since(txVerifyStart).Nanoseconds()/1000000, " Tx Size (bytes): ", tx.Size())
 	} else if tx.TxCode() == types.RedeemTx {
 		txVerifyStart := time.Now()
 		if exist := statedb.Exist(common.BytesToAddress(tx.ZKSN().Bytes())); exist == true && (*(tx.ZKSN()) != *(initSN)) {
@@ -196,7 +163,7 @@ func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *commo
 	// produced by this ZK transaction, setting their leaves (path=Poseidon(cmt))
 	// to 1. This keeps every node's SMT in sync as blocks are processed.
 	switch tx.TxCode() {
-	case types.MintTx, types.SendTx, types.DepositTx, types.RedeemTx, types.CreateAccountTx:
+	case types.MintTx, types.RedeemTx, types.CreateAccountTx:
 		if tx.ZKCMT() != nil {
 			zktx.InsertCMT(tx.ZKCMT())
 		}
@@ -215,14 +182,6 @@ func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *commo
 		return nil, 0, err
 	}
 
-	if tx.TxCode() == types.DepositTx {
-		address, _ := types.ExtractPKBAddress(types.HomesteadSigner{}, tx)
-		if exist := statedb.Exist(address); exist == true {
-			return nil, 0, errors.New("cannot use randompubkey for a second time")
-		}
-		statedb.CreateAccount(address)
-		statedb.SetNonce(address, 1)
-	}
 	// Update the state with pending changes
 	var root []byte
 	if config.IsByzantium(header.Number) {

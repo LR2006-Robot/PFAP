@@ -17,7 +17,6 @@
 package core
 
 import (
-	"crypto/ecdsa"
 	"errors"
 	"fmt"
 	"math"
@@ -29,7 +28,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
@@ -575,15 +573,6 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	}
 	// Make sure the transaction is signed properly
 	from, err := types.Sender(pool.signer, tx)
-	if txCode == types.DepositTx {
-		PKBAddress, _ := types.ExtractPKBAddress(types.HomesteadSigner{}, tx)
-		x, y := tx.PubKey()
-		pub := ecdsa.PublicKey{Curve: crypto.S256(), X: x, Y: y}
-		address := crypto.PubkeyToAddress(pub)
-		if address != PKBAddress {
-			return errors.New("invalid publickey for deposit tx")
-		}
-	}
 	if err != nil {
 		return ErrInvalidSender
 	}
@@ -593,12 +582,12 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 		return ErrUnderpriced
 	}
 	// Ensure the transaction adheres to nonce ordering
-	if txCode != types.SendTx && pool.currentState.GetNonce(from) > tx.Nonce() {
+	if pool.currentState.GetNonce(from) > tx.Nonce() {
 		return ErrNonceTooLow
 	}
 	// Transactor should have enough funds to cover the costs
 	// cost == V + GP * GL
-	if txCode != types.SendTx && pool.currentState.GetBalance(from).Cmp(tx.Cost()) < 0 {
+	if pool.currentState.GetBalance(from).Cmp(tx.Cost()) < 0 {
 		return ErrInsufficientFunds
 	}
 	intrGas, err := IntrinsicGas(tx.Data(), tx.To() == nil, pool.homestead)
@@ -624,21 +613,6 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	if txCode == types.RedeemTx {
 		rtCmt := tx.RTcmt()
 		err = zktx.VerifyRedeemProof(tx.ZKSN(), &rtCmt, tx.ZKCMT(), tx.ZKValue(), tx.ZKProof())
-		if err != nil {
-			return err
-		}
-	}
-	if txCode == types.SendTx {
-		cmtbalance := pool.currentState.GetCMTBalance(from)
-		err = zktx.VerifySendProof(tx.ZKSN(), tx.ZKCMTS(), tx.ZKProof(), &cmtbalance, tx.ZKCMT())
-		if err != nil {
-			return err
-		}
-	}
-	if txCode == types.DepositTx {
-		cmtbalance := pool.currentState.GetCMTBalance(from)
-		ppp := &ecdsa.PublicKey{crypto.S256(), tx.X(), tx.Y()}
-		err = zktx.VerifyDepositProof(ppp, tx.RTcmt(), &cmtbalance, tx.ZKSN(), tx.ZKCMT(), tx.ZKSNS(), tx.ZKProof())
 		if err != nil {
 			return err
 		}

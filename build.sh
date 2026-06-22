@@ -85,10 +85,10 @@ build_libsnark() {
     mkdir -p "$LIBSNARK_BUILD"
     cd "$LIBSNARK_BUILD"
 
-    if [ ! -f "$LIBSNARK_BUILD/Makefile" ]; then
-        info "Running cmake..."
-        cmake ..
-    fi
+    # Always re-run cmake so CMakeLists.txt changes (added/removed targets)
+    # are picked up. A stale cache can silently drop targets like transfer_key.
+    info "Running cmake..."
+    cmake ..
 
     info "Compiling..."
     make -j$(nproc)
@@ -111,8 +111,6 @@ generate_keys() {
     local key_generators=(
         "createaccount:createaccount"
         "mint:mint"
-        "send:send"
-        "deposit:deposit"
         "redeem:redeem"
         "transfer:transfer"
     )
@@ -131,13 +129,12 @@ generate_keys() {
 
     info "Moving keys to $PRFKEY_DIR..."
     cd "$LIBSNARK_BUILD"
-    mv -f createaccountpk.txt createaccountvk.txt \
-          mintpk.txt mintvk.txt \
-          sendpk.txt sendvk.txt \
-          depositpk.txt depositvk.txt \
-          redeempk.txt redeemvk.txt \
-          transferpk.txt transfervk.txt \
-          "$PRFKEY_DIR/" 2>/dev/null || true
+    for f in createaccountpk.txt createaccountvk.txt \
+             mintpk.txt mintvk.txt \
+             redeempk.txt redeemvk.txt \
+             transferpk.txt transfervk.txt; do
+        [ -f "$f" ] && mv -f "$f" "$PRFKEY_DIR/"
+    done
 
     info "Keys generated: $(ls "$PRFKEY_DIR"/*.txt | wc -l) files"
 }
@@ -153,10 +150,9 @@ install_libs() {
     fi
 
     local so_files=(
+        "$LIBSNARK_BUILD/src/libzk_smt.so"
         "$LIBSNARK_BUILD/src/libzk_createaccount.so"
         "$LIBSNARK_BUILD/src/libzk_mint.so"
-        "$LIBSNARK_BUILD/src/libzk_send.so"
-        "$LIBSNARK_BUILD/src/libzk_deposit.so"
         "$LIBSNARK_BUILD/src/libzk_redeem.so"
         "$LIBSNARK_BUILD/src/libzk_transfer.so"
         "$LIBSNARK_BUILD/depends/libsnark/libsnark/libsnark.so"
@@ -169,7 +165,10 @@ install_libs() {
         fi
     done
 
-    sudo cp -i "${so_files[@]}" /usr/local/lib/
+    # Remove obsolete libraries from earlier builds (send/deposit removed).
+    sudo rm -f /usr/local/lib/libzk_send.so /usr/local/lib/libzk_deposit.so
+
+    sudo cp -f "${so_files[@]}" /usr/local/lib/
     sudo ldconfig
     info "Shared libraries installed to /usr/local/lib/"
 
@@ -239,9 +238,14 @@ install_tests() {
     fi
     info "uv: $(uv --version)"
 
-    cd "$REPO_ROOT/test/new300nodes"
+    local test_dir="$REPO_ROOT/test/pow"
+    if [ ! -f "$test_dir/pyproject.toml" ]; then
+        warn "No pyproject.toml in $test_dir, skipping uv sync."
+        return 0
+    fi
+    cd "$test_dir"
     uv sync
-    chmod +x "$REPO_ROOT/test/new300nodes/watch_nodes.sh" 2>/dev/null || true
+    chmod +x "$test_dir/watch_nodes.sh" 2>/dev/null || true
     info "Python test environment ready."
 }
 
@@ -274,8 +278,8 @@ build_all() {
     echo "  Keys:          /usr/local/prfKey/"
     echo "  LD_LIBRARY:    /usr/local/lib"
     echo ""
-    echo "  Quick test:    cd test/new300nodes && uv run quick_test.py"
-    echo "  Node monitor:  ./test/new300nodes/watch_nodes.sh"
+    echo "  Quick test:    cd test/pow && uv run quick_test.py"
+    echo "  Node monitor:  ./test/pow/watch_nodes.sh"
     echo ""
     echo "  Add to PATH:   export PATH=\"$GOPATH_BIN:\$PATH\""
     echo ""
@@ -311,8 +315,10 @@ clean() {
     cd "$LIBSNARK_SRC"
     rm -rf "$LIBSNARK_BUILD"
 
-    cd "$REPO_ROOT/test/new300nodes"
-    rm -rf .venv __pycache__ 2>/dev/null || true
+    if [ -d "$REPO_ROOT/test/pow" ]; then
+        cd "$REPO_ROOT/test/pow"
+        rm -rf .venv __pycache__ 2>/dev/null || true
+    fi
 
     info "Clean done."
     warn "System-installed files NOT removed: /usr/local/lib/libzk*.so, /usr/local/prfKey/"
@@ -338,7 +344,7 @@ show_status() {
     echo ""
     echo "--- Shared Libraries (/usr/local/lib) ---"
     local all_found=true
-    for name in libzk_createaccount libzk_mint libzk_send libzk_deposit libzk_redeem libzk_transfer libsnark libff; do
+    for name in libzk_smt libzk_createaccount libzk_mint libzk_redeem libzk_transfer libsnark libff; do
         if [ -f "/usr/local/lib/${name}.so" ]; then
             info "  ${name}.so  ($(du -h "/usr/local/lib/${name}.so" | cut -f1))"
         else
@@ -351,7 +357,7 @@ show_status() {
     echo ""
     echo "--- Proving/Verification Keys (/usr/local/prfKey) ---"
     if [ -d "/usr/local/prfKey" ]; then
-        local key_names="createaccount mint send deposit redeem transfer"
+        local key_names="createaccount mint redeem transfer"
         for name in $key_names; do
             if [ -f "/usr/local/prfKey/${name}pk.txt" ] && [ -f "/usr/local/prfKey/${name}vk.txt" ]; then
                 info "  ${name}: pk+vk OK"
@@ -373,8 +379,8 @@ show_status() {
     # Python
     echo ""
     echo "--- Python Test Environment ---"
-    if [ -d "$REPO_ROOT/test/new300nodes/.venv" ]; then
-        info "venv: test/new300nodes/.venv"
+    if [ -d "$REPO_ROOT/test/pow/.venv" ]; then
+        info "venv: test/pow/.venv"
     else
         warn "venv not set up. Run './build.sh tests'"
     fi

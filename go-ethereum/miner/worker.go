@@ -468,8 +468,6 @@ func (self *worker) commitNewWork() {
 			if tx.ZKCMT2() != nil {
 				cmt = append(cmt, tx.ZKCMT2())
 			}
-		} else if tx.Code() == types.SendTx {
-			cmt = append(cmt, tx.ZKCMTS())
 		} else if tx.Code() == types.MintTx || tx.Code() == types.RedeemTx || tx.Code() == types.CreateAccountTx {
 			cmt = append(cmt, tx.ZKCMT())
 		}

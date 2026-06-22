@@ -39,8 +39,6 @@ var (
 const (
 	PublicTx        uint8 = 0x00
 	MintTx          uint8 = 0x01
-	SendTx          uint8 = 0x02
-	DepositTx       uint8 = 0x03
 	UpdateTx        uint8 = 0x04
 	RedeemTx        uint8 = 0x05
 	TransferTx      uint8 = 0x06
@@ -49,8 +47,6 @@ const (
 
 var PublicTxStr string = "Public Transaction"
 var MintTxStr string = "Mint Transaction"
-var SendTxStr string = "Send Transaction"
-var DepositTxStr string = "Deposit Transaction"
 var UpdateTxStr string = "Update Transaction"
 var RedeemTxStr string = "Redeem Transaction"
 var TransferTxStr string = "Transfer Transaction"
@@ -423,10 +419,6 @@ func (tx *Transaction) GetTxCodeStr() string {
 		return PublicTxStr
 	} else if tx.Code() == MintTx {
 		return MintTxStr
-	} else if tx.Code() == SendTx {
-		return SendTxStr
-	} else if tx.Code() == DepositTx {
-		return DepositTxStr
 	} else if tx.Code() == UpdateTx {
 		return UpdateTxStr
 	} else if tx.Code() == RedeemTx {
