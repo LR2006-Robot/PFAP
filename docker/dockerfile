@@ -1,0 +1,46 @@
+# Base image: strictly use Ubuntu 18.04 (the only officially verified system version)
+FROM ubuntu:18.04
+
+# Replace APT sources with Aliyun mirror (Ubuntu 18.04 has reached EOL; default and old-releases sources are no longer available)
+RUN sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g' /etc/apt/sources.list && \
+    sed -i 's|http://security.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g' /etc/apt/sources.list && \
+    apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    git \
+    wget \
+    ca-certificates \
+    libgmp3-dev \
+    libprocps-dev \
+    libboost-all-dev \
+    libssl-dev \
+    pkg-config \
+    sudo \
+    && rm -rf /var/lib/apt/lists/*
+
+# Environment variables: Go paths, project paths, dynamic library path
+ENV GOROOT=/usr/local/go \
+    GOPATH=/root/go \
+    PATH=/usr/local/go/bin:/root/go/bin:$PATH \
+    LD_LIBRARY_PATH=/usr/local/lib
+
+# Install Go 1.10.8 (newer Go versions will cause the geth fork to fail to compile)
+# --no-check-certificate prevents HTTPS download failures caused by expired CA certificates on Ubuntu 18.04
+RUN wget -q --no-check-certificate https://dl.google.com/go/go1.10.8.linux-amd64.tar.gz && \
+    tar -C /usr/local -xzf go1.10.8.linux-amd64.tar.gz && \
+    rm go1.10.8.linux-amd64.tar.gz && \
+    mkdir -p $GOPATH/src/github.com
+
+# Clone the PFAP project source to the designated GOPATH directory (consistent with official documentation paths)
+RUN cd $GOPATH/src/github.com && \
+    git clone https://github.com/percyc/PFAP.git
+
+# One-shot build: compile libsnark, generate proving keys, compile geth, install shared libraries
+WORKDIR /root/go/src/github.com/PFAP
+RUN chmod +x build.sh && ./build.sh all
+
+# Expose ports: P2P communication ports, HTTP-RPC port
+EXPOSE 2007 2008 8545 30303
+
+# Default to Bash for convenient manual node operations
+CMD ["/bin/bash"]
