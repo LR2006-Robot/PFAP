@@ -29,23 +29,19 @@ PFAP/
 
 ## 1. Prerequisites
 
-> ⚠️ **Tested environment**: Ubuntu **18.04.1 LTS** (x86_64) + Go **1.10.8**.
-> Other Ubuntu versions or Go versions are **not** verified and may fail to build (libsnark in particular is sensitive to compiler / boost / OpenSSL versions). Use a matching environment if possible.
 
 ```bash
 sudo apt-get install build-essential cmake git \
     libgmp3-dev libproc2-dev libboost-all-dev libssl-dev pkg-config
 ```
 
-- Go **1.10.x** (tested with 1.10.8)
+- Go **1.22.x** (test 1.22.2)
 - Optional: [`uv`](https://github.com/astral-sh/uv) for the multi-node Python test scripts
 
-Make sure `GOPATH` and `LD_LIBRARY_PATH` are exported:
-
 ```bash
-export PATH=$(go env GOPATH)/bin:$PATH
-export LD_LIBRARY_PATH=/usr/local/lib
-export GOPATH=$(go env GOPATH)
+sudo apt install golang-go
+nano ~/.bashrc
+export PATH="/home/fiexr/go/bin:$PATH"
 ```
 
 ## 2. Build
@@ -53,9 +49,9 @@ export GOPATH=$(go env GOPATH)
 ### 2.1 One-shot build (recommended)
 
 ```bash
-mkdir -p  $GOPATH/src/github.com/
-git clone https://github.com/percyc/PFAP.git $GOPATH/src/github.com/PFAP
-cd $GOPATH/src/github.com/PFAP
+mkdir -p  /root/code
+git clone https://github.com/percyc/PFAP.git /root/code/PFAP
+cd /root/code/PFAP
 ./build.sh all
 ```
 
