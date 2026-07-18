@@ -13,7 +13,7 @@ run we wipe the whole `data/` directory (keystore included) so the addresses
 created below are guaranteed to match what we unlock later.
 
 ```bash
-cd ~/go/src/github.com/PFAP/test/pow
+cd test/pow
 rm -rf signer1/data signer2/data *.log
 ```
 
@@ -47,7 +47,7 @@ geth --datadir signer2/data init pow.json
 ### Terminal 1 (signer1 - payer)
 
 ```bash
-cd ~/go/src/github.com/PFAP/test/pow
+cd test/pow
 geth --datadir signer1/data --networkid 55661 --port 2007 \
   --unlock <signer1_addr> \
   --password signer1/passwd.txt console 2>> signer1.log
@@ -56,7 +56,7 @@ geth --datadir signer1/data --networkid 55661 --port 2007 \
 ### Terminal 2 (signer2 - receiver)
 
 ```bash
-cd ~/go/src/github.com/PFAP/test/pow
+cd test/pow
 geth --datadir signer2/data --networkid 55661 --port 2008 \
   --unlock <signer2_addr> \
   --password signer2/passwd.txt console 2>> signer2.log
