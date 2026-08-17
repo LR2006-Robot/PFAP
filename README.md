@@ -1,227 +1,133 @@
-# PFAP
+# PFAP Docker image (Ubuntu 24.04)
 
-PFAP is an anonymous payment scheme built on Ethereum and a geth fork. It provides four privacy-preserving transaction circuits — **CreateAccount**, **Mint**, **Redeem**, and **Transfer** — where account balances are hidden inside commitments and secretly spending is authorized with zk-SNARK proofs.
-
-Existence of a spent commitment `cmt_old` is proven against a single **global depth-256 sparse Poseidon Merkle tree (the state Merkle tree)**, shared by Mint / Redeem / Transfer. Inside the circuit the leaf is `path = Poseidon(cmt_old)` and all tree nodes use Poseidon, while the commitment `cmt` itself is computed with SHA-256. The membership witness (path + 256 siblings + root `rt_cmt`) is generated on the C++ side from the global tree.
-
-## Repository layout
+This directory is the Docker **build context** for the Ubuntu 24.04 port of
+PFAP. The project source lives in [`PFAP/`](./PFAP/) — start with
+[`PFAP/README.md`](./PFAP/README.md) for the build, the RPC API and the porting
+notes, and [`PFAP/docs/PROJECT_DOCUMENTATION.md`](./PFAP/docs/PROJECT_DOCUMENTATION.md)
+for the architecture reference.
 
 ```
-PFAP/
-├── go-ethereum/    geth fork (based on 040dd5bd) with ZK tx types and RPCs
-├── libsnark-vnt/   libsnark gadgets: createAccount / mint / redeem / transfer
-├── prfKey/         generated (pk, vk) files (produced after build)
-├── test/
-│   ├── pow/        PoW test environment (includes Transfer walkthrough)
-└── build.sh        one-shot build/install script
+docker/
+├── dockerfile          Ubuntu 24.04 image definition
+├── new_version.log     toolchain versions on the 24.04 host
+├── old_version.log     toolchain versions in the original 18.04 container
+├── output              full transcript of a successful `./build.sh all`
+└── PFAP/               project source (copied into the image at build time)
 ```
 
-## Circuits and transaction types
+## What the image contains
 
-| Transaction     | Public inputs                                      | Description                                       |
-| --------------- | -------------------------------------------------- | ------------------------------------------------- |
-| `CreateAccount` | `cmt_A`                                            | Create a ZK account (initial balance = 0)         |
-| `Mint`          | `cmt_A_new, value_s, sn_A_old, rt_cmt`             | Plaintext balance → ZK balance (proves `cmt_A_old` in state tree) |
-| `Redeem`        | `cmt_A_new, value_s, sn_A_old, rt_cmt`             | ZK balance → plaintext balance (proves `cmt_A_old` in state tree) |
-| `Transfer`      | `cmt_S, cmt_X_new, sn_X_old, rt_cmt, type`         | Direct ZK → ZK transfer |
+`FROM ubuntu:24.04`, with the apt sources rewritten to the Aliyun mirror, plus
+`build-essential cmake git wget ca-certificates libgmp3-dev libproc2-dev
+libboost-all-dev libssl-dev pkg-config sudo golang-go python3`.
 
-`type = 0` is used for the payer circuit (enforces `value_old ≥ value_s`); `type = 1` is used for the receiver circuit. Each account keeps an encryption secret `sk_A`, and all serial numbers are chained via `sn_new = SHA256(sk_A, sn_old)`. For Mint / Redeem / Transfer, `rt_cmt` is the root of the global Poseidon state Merkle tree, and the circuit proves membership of `cmt_old` (payer's `cmt_A_old`, and for `type = 1` also the receiver's `cmt_B_old`) via a Poseidon path against that root.
+The image differs from the 18.04 one in two ways beyond the base:
 
-## 1. Prerequisites
+- **Go comes from apt** (`golang-go`, 1.22.2) instead of a `dl.google.com`
+  tarball, so there is no `GOROOT` / `GOPATH` setup — Go's defaults
+  (`GOPATH=/root/go`) are used and only `/root/go/bin` is added to `PATH`.
+- **The source is `COPY`ed, not cloned.** `COPY ./PFAP /root/code/PFAP` means
+  the image is built from your local working tree — local edits are picked up,
+  and no network access to the repo is needed. It also means the build context
+  must be this directory.
 
-> ⚠️ **Tested environment**: Ubuntu **18.04.1 LTS** (x86_64) + Go **1.10.8**.
-> Other Ubuntu versions or Go versions are **not** verified and may fail to build (libsnark in particular is sensitive to compiler / boost / OpenSSL versions). Use a matching environment if possible.
+`RUN ./build.sh all` executes the full build (libsnark-vnt → pk/vk → install
+`.so` to `/usr/local/lib` → install keys to `/usr/local/prfKey` → geth), so the
+resulting image is ready to run nodes with no further setup.
+
+> `LD_LIBRARY_PATH` is deliberately not set: `build.sh` runs `ldconfig` after
+> installing the shared libraries, and `/usr/local/lib` is in the default loader
+> path on Ubuntu 24.04. Export it manually only if you move the `.so` files.
+
+## Build and run
 
 ```bash
-sudo apt-get install build-essential cmake git \
-    libgmp3-dev libprocps-dev libboost-all-dev libssl-dev pkg-config
+cd docker
+docker build -t pfap:latest -f dockerfile .
+docker run -d --name pfap-node --network host pfap:latest tail -f /dev/null
 ```
 
-- Go **1.10.x** (tested with 1.10.8)
-- Optional: [`uv`](https://github.com/astral-sh/uv) for the multi-node Python test scripts
-
-Make sure `GOPATH` and `LD_LIBRARY_PATH` are exported:
+The build takes a while — libsnark plus the trusted-setup key generation for
+four circuits dominates. Every terminal you need (one per node) must attach to
+the same container:
 
 ```bash
-export PATH=$(go env GOPATH)/bin:$PATH
-export LD_LIBRARY_PATH=/usr/local/lib
-export GOPATH=$(go env GOPATH)
+docker exec -it pfap-node bash
 ```
 
-## 2. Build
+Inside the container the project is at `/root/code/PFAP`, and the two-node
+walkthrough is [`test/pow/TRANSFER_TEST.md`](./PFAP/test/pow/TRANSFER_TEST.md).
+Note that its paths assume `~/code/PFAP`, which matches the container layout.
 
-### 2.1 One-shot build (recommended)
+Exposed ports: `2007 2008` (the two test nodes), `8545` (HTTP RPC), `30303`
+(devp2p).
 
-```bash
-mkdir -p  $GOPATH/src/github.com/
-git clone https://github.com/percyc/PFAP.git $GOPATH/src/github.com/PFAP
-cd $GOPATH/src/github.com/PFAP
-./build.sh all
+## Troubleshooting
+
+These are the failure modes actually hit while bringing the two-node test up
+inside Docker. They are container/network issues, not port-specific — the 18.04
+image behaved the same way.
+
+### 1. `admin.addPeer` never connects
+
+Multi-container setups need explicit network configuration. Since this project
+only needs two terminals into one container, starting with `--network host`
+avoids the whole problem. If the container was started **without**
+`--network host`, replace the IP in `"enode://<id>@<ip>:2008"` with `127.0.0.1`.
+
+### 2. `net.peerCount` returns `0`
+
+First confirm issue 1 is resolved. Then compare the genesis hash in both
+terminals:
+
+```javascript
+admin.nodeInfo.protocols.eth.genesis
 ```
 
-`build.sh all` performs, in order:
-
-1. Compile `libsnark-vnt`.
-2. Run `createaccount_key / mint_key / redeem_key / transfer_key` to produce (pk, vk).
-3. Copy the 8 generated `*.txt` keys into `/usr/local/prfKey/`.
-4. Install `libzk_*.so`, `libsnark.so`, `libff.so` into `/usr/local/lib/` and run `ldconfig`.
-5. `go install ./cmd/geth` → outputs to `$GOPATH/bin/geth`.
-6. If `uv` is installed, initialize the Python test environment.
-
-### 2.2 Sub-commands
+If the two differ, the nodes were initialized from different `pow.json` files or
+`init` did not succeed. Re-initialize both and restart the consoles — the
+accounts in `keystore/` are preserved, so the unlock addresses stay the same:
 
 ```bash
-./build.sh quick         # Rebuild geth only (use after Go code changes)
-./build.sh libsnark      # Build libsnark-vnt only
-./build.sh keys          # Regenerate (pk, vk) only
-./build.sh install-libs  # Install .so files to /usr/local/lib only
-./build.sh install-keys  # Install prfKey to /usr/local/prfKey only
-./build.sh geth          # go install geth only
-./build.sh status        # Show current build/install status
-./build.sh clean         # Clean build artifacts (system-installed files kept)
-./build.sh help          # Full help
-```
+exit
 
-> ⚠️ All geth nodes on the same network MUST share the **same** `prfKey`; otherwise proof verification will fail.
+# Clear previous chain data (keep keystore accounts)
+rm -rf signer1/data/geth signer1/data/geth.ipc
+rm -rf signer2/data/geth signer2/data/geth.ipc
 
-### 2.3 After modifying C++ circuits
-
-After editing any `.tcc / .cpp` under `libsnark-vnt/src`:
-
-```bash
-./build.sh libsnark         # rebuild
-./build.sh install-libs     # re-copy .so files
-# If the circuit constraints (structure) actually changed, also run:
-./build.sh keys
-./build.sh install-keys
-```
-
-Note: any change to circuit structure invalidates (pk, vk); all nodes must be re-synced with the new keys.
-
-![Build](docs/images/Build.gif)
-
-## 3. Running nodes
-
-Using `test/pow` as the example. The
-`signerX/` directories only ship with `passwd.txt`; you must create a fresh
-account in each datadir and then unlock that exact address.
-
-```bash
-cd test/pow
-
-# Terminal 1 -------------------------------------------------------------
-# Wipe any previous run (including the keystore) and start from scratch
-rm -rf signer1/data signer1.log
-
-# Create an account in signer1/data/keystore; record the printed address
-geth --datadir signer1/data account new --password signer1/passwd.txt
-# => Address: {abcd...}    <-- use THIS address below as <signer1_addr>
-
-# Initialize the genesis block
+# Initialize both from the same genesis
 geth --datadir signer1/data init pow.json
-
-# Start the node (replace <signer1_addr> with the address printed above)
-geth --datadir signer1/data --networkid 55661 --port 2007 \
-    --unlock <signer1_addr> --password signer1/passwd.txt \
-    console 2>> signer1.log
-
-# Terminal 2 -------------------------------------------------------------
-rm -rf signer2/data signer2.log
-geth --datadir signer2/data account new --password signer2/passwd.txt
-# => Address: {efgh...}    <-- use THIS address below as <signer2_addr>
 geth --datadir signer2/data init pow.json
-geth --datadir signer2/data --networkid 55661 --port 2008 \
-    --unlock <signer2_addr> --password signer2/passwd.txt \
-    console 2>> signer2.log
 ```
 
-> Note: deleting only `signer1/data/geth` (keeping `keystore/`) also works
-> for repeated runs, but the addresses above must always match whatever is
-> currently in `signer1/data/keystore`. The two are independent — `account new`
-> writes to `keystore/`, while `init` / chain data live under `geth/`.
+### 3. `authentication needed: password or unlock`
 
-Connect the two nodes:
+The `--unlock` address was passed without the `0x` prefix, so the unlock silently
+failed. Either fix the flag or unlock permanently from the console:
+
+```javascript
+personal.unlockAccount(eth.accounts[0], "password", 0)
+```
+
+### 4. signer2: `not enough balance`
+
+signer2 has no ETH for gas. Mine on signer1 and send it some:
 
 ```javascript
 // Terminal 2
-admin.nodeInfo.enode
+eth.getBalance(eth.accounts[0])
+eth.accounts[0]
+
 // Terminal 1
-admin.addPeer("enode://<id>@<ip>:2008")
-net.peerCount
+eth.sendPublicTransaction({from: eth.accounts[0], to: "0x<signer2_address>", value: web3.toWei(100, "ether")})
 miner.start()
+
+// Terminal 2 — verify receipt
+eth.getBalance(eth.accounts[0])
 ```
 
-![Running nodes](docs/images/Running-nodes.gif)
+### 5. `/usr/bin/env: 'bash\r': No such file or directory`
 
-## 4. RPC / console API
-
-### 4.1 Balances & account state
-
-```javascript
-eth.getBalance(addr)        // plaintext balance
-eth.getAccountState()       // { balance, commitment, lastTxBlockNumber }
-```
-
-![Balances & account state](docs/images/Balances-account_state.gif)
-
-### 4.2 Single-party transactions
-
-```javascript
-// Create a ZK account (must be called once before any ZK transaction)
-eth.sendCreateAccountTransaction({from: eth.accounts[0]})
-
-// Plaintext → ZK
-eth.sendMintTransaction({from: eth.accounts[0], value: "0x1234"})
-
-// ZK → plaintext
-eth.sendRedeemTransaction({from: eth.accounts[0], value: "0x123"})
-```
-
-![Single-party transactions](docs/images/Single-party.gif)
-
-### 4.3 Transfer (cooperative ZK → ZK)
-
-A Transfer is **submitted by the receiver (B)**, but the payer (A) must first generate a proof locally. While a Transfer is in progress, **neither side should issue other ZK transactions**.
-
-```javascript
-// Terminal 1
-// 1) Payer A: generate the proof (no tx broadcast yet) and stage the new local state.
-//    Membership of cmt_A_old is proven against the global Poseidon state Merkle tree.
-var valueS = "0x10"
-var rs     = "0x01"
-var payerData = eth.getPayerNextState(rs, valueS)
-// payerData = { cmtANew, snAOld, proofA }
-
-// Terminal 2
-// 2) Ship payerData / valueS / rs to receiver B, who submits the final tx
-eth.sendTransferTransaction({
-    from:    eth.accounts[0],
-    value:   valueS,
-    rs:      rs,
-    cmtANew: payerData.cmtANew,
-    snAOld:  payerData.snAOld,
-    proofA:  payerData.proofA
-})
-
-// 4) Both sides verify
-eth.getAccountState()
-```
-
-![Transfer](docs/images/Transfer.gif)
-
-A complete end-to-end walkthrough is in [`test/pow/TRANSFER_TEST.md`](./test/pow/TRANSFER_TEST.md).
-
-## 5. Status & troubleshooting
-
-```bash
-./build.sh status   # check geth / .so / prfKey / venv
-```
-
-Common issues:
-
-- **Proof verification fails** — nodes have inconsistent `prfKey`; resync `/usr/local/prfKey/` and restart.
-- **`libzk_*.so` not found** — `LD_LIBRARY_PATH=/usr/local/lib` not exported, or `install-libs` was never run.
-
-## 6. References
-
-- BlockMaze: <https://github.com/Agzs/BlockMaze>
+`build.sh` was saved with CRLF line endings — this is what broke the first
+24.04 image build. The file in this tree is LF; if you edit it on Windows, make
+sure your editor does not convert it back.
