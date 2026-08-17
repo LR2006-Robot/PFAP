@@ -271,9 +271,9 @@ sn_i = SHA256(sk_A, sn_{i-1})       # 后续序列号
 ### 架构图
 
 ```
-┌─ Go 层（go-ethereum/zktx/zktx.go）────────────────────┐
+┌─ Go 层（go-ethereum/zktx/zktx.go）───────────────────────┐
 │                                                         │
-│  ZK 操作接口：                                           │
+│  ZK 操作接口:                                            │
 │  GenMintProof()     → C.genMintproof()                  │
 │  VerifyMintProof()  → C.verifyMintproof()               │
 │  GenCMT()           → C.genCMT()                        │
@@ -287,7 +287,7 @@ sn_i = SHA256(sk_A, sn_{i-1})       # 后续序列号
 │    -lzk_createaccount -lzk_smt -lff -lsnark             │
 │    -lstdc++ -lgmp -lgmpxx                               │
 ├─────────────────────────────────────────────────────────┤
-│                     CGO 边界 (extern "C")                 │
+│                     CGO 边界 (extern "C")                │
 │   mintcgo.hpp / transfercgo.hpp / smtcgo.hpp / ...      │
 ├─────────────────────────────────────────────────────────┤
 │ C++ 层（libsnark-vnt/src/）                              │
@@ -298,9 +298,9 @@ sn_i = SHA256(sk_A, sn_{i-1})       # 后续序列号
 │      ↓                                                  │
 │  R1CS 约束系统                                           │
 │      ↓                                                  │
-│  libsnark Prover / Verifier                              │
+│  libsnark Prover / Verifier                             │
 │      ↓                                                  │
-│  证明序列化 ↔ 文件/字符串                                 │
+│  证明序列化 ↔ 文件/字符串                                  │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -362,23 +362,23 @@ type ZKSequence struct {
 │   付款方 A    │                    │   收款方 B    │
 ├──────────────┤                    ├──────────────┤
 │ 1. 调用       │                    │              │
-│ getPayerNext  │                    │              │
-│ State(rs,val) │                    │              │
+│ getPayerNext  │                   │              │
+│ State(rs,val) │                   │              │
 │              │                    │              │
 │ 2. 本地生成   │                    │              │
 │ proof_A      │                    │              │
 │ (type=0)     │                    │              │
 │              │                    │              │
-│ 3. ──payerData──→               │              │
-│ {cmtANew,     │                    │              │
-│  snAOld,      │                    │              │
-│  proofA}      │                    │              │
+│ 3. ──payerData──→                 │              │
+│ {cmtANew,    │                    │              │
+│  snAOld,     │                    │              │
+│  proofA}     │                    │              │
 │              │                    │ 4. 调用       │
-│              │                    │ sendTransfer  │
-│              │                    │ Transaction   │
+│              │                    │ sendTransfer │
+│              │                    │ Transaction  │
 │              │                    │              │
 │              │                    │ 5. 网络验证   │
-│              │                    │ proof_A +     │
+│              │                    │ proof_A +    │
 │              │                    │ 生成 proof_B  │
 │              │                    │ (type=1)     │
 └──────────────┘                    └──────────────┘
